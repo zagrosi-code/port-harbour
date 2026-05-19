@@ -7,7 +7,7 @@
 
 **Computer *ports* on a pixel-art *harbour*. Pun + pleonasm (*port* = *harbour*). Both intended. 🚢**
 
-⭐ Heading to the VS Code Marketplace soon. Star the repo to follow along.
+⭐ Now on the VS Code Marketplace: [Port Harbour](https://marketplace.visualstudio.com/items?itemName=zagrosi-code.port-harbour).
 
 </div>
 
@@ -21,7 +21,13 @@ Your listening sockets are fishing boats moored at the seawall. Your Docker cont
 
 </div>
 
-## Run it
+## Install
+
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=zagrosi-code.port-harbour), or search for **Port Harbour** in the VS Code Extensions view.
+
+After installing, open it from the Port Harbour Activity Bar icon, the **Port Harbour** status bar item, or the command palette command **Port Harbour: Open**.
+
+## Run from source
 
 1. Open this folder in VS Code.
 2. Press <kbd>F5</kbd>.

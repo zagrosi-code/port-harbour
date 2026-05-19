@@ -2,9 +2,14 @@
   "name": "port-harbour",
   "displayName": "Port Harbour",
   "description": "Live pixel-art harbour for your dev ports + docker containers. See which processes own which ports as ships moored at the seawall.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "zagrosi-code",
   "license": "MIT",
+  "icon": "assets/icon.png",
+  "galleryBanner": {
+    "color": "#080A1C",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -12,7 +17,15 @@
     "Visualization",
     "Other"
   ],
-  "keywords": ["ports", "netstat", "pixel-art", "harbour", "visualisation", "devtool", "docker"],
+  "keywords": [
+    "ports",
+    "netstat",
+    "pixel-art",
+    "harbour",
+    "visualisation",
+    "devtool",
+    "docker"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/zagrosi-code/port-harbour"
@@ -23,16 +36,53 @@
   "homepage": "https://github.com/zagrosi-code/port-harbour#readme",
   "main": "./out/extension.js",
   "activationEvents": [
-    "onCommand:harbour.show"
+    "onStartupFinished",
+    "onCommand:harbour.show",
+    "onCommand:harbour.openSidebar",
+    "onView:harbour.sidebar"
   ],
   "contributes": {
     "commands": [
       {
         "command": "harbour.show",
         "title": "Port Harbour: Open",
-        "category": "Port Harbour"
+        "category": "Port Harbour",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "harbour.openSidebar",
+        "title": "Port Harbour: Show in Activity Bar",
+        "category": "Port Harbour",
+        "icon": "$(layout-sidebar-left)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "port-harbour",
+          "title": "Port Harbour",
+          "icon": "assets/harbour-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "port-harbour": [
+        {
+          "type": "webview",
+          "id": "harbour.sidebar",
+          "name": "Harbour"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "harbour.show",
+          "when": "view == harbour.sidebar",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Port Harbour",
       "properties": {
@@ -72,8 +122,10 @@
     "build": "npm run build:webview && npm run build:ext",
     "watch:ext": "node esbuild.config.mjs --watch",
     "watch:webview": "cd webview-ui && npm run dev",
-    "package": "npm run build && vsce package",
+    "package": "vsce package --target darwin-arm64",
     "lint": "tsc --noEmit",
+    "test:manifest": "node scripts/check-extension-manifest.mjs",
+    "test": "npm run lint && npm run test:manifest",
     "vscode:prepublish": "npm run build"
   },
   "devDependencies": {

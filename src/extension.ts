@@ -4,14 +4,38 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { DockerScanner } from "./dockerScanner";
 
+const PANEL_VIEW_TYPE = "harbour.panel";
+const SIDEBAR_VIEW_ID = "harbour.sidebar";
+const OPEN_PANEL_COMMAND = "harbour.show";
+const OPEN_SIDEBAR_COMMAND = "harbour.openSidebar";
+
 let panel: vscode.WebviewPanel | undefined;
+let sidebarView: vscode.WebviewView | undefined;
 let child: ChildProcess | undefined;
 let docker: DockerScanner | undefined;
 let buf = "";
 
 export function activate(context: vscode.ExtensionContext) {
+  const statusBarItem = vscode.window.createStatusBarItem(
+    "port-harbour.open",
+    vscode.StatusBarAlignment.Left,
+    90
+  );
+  statusBarItem.name = "Port Harbour";
+  statusBarItem.text = "$(plug) Port Harbour";
+  statusBarItem.tooltip = "Open Port Harbour";
+  statusBarItem.command = OPEN_SIDEBAR_COMMAND;
+  statusBarItem.show();
+
   context.subscriptions.push(
-    vscode.commands.registerCommand("harbour.show", () => showPanel(context))
+    vscode.commands.registerCommand(OPEN_PANEL_COMMAND, () => showPanel(context)),
+    vscode.commands.registerCommand(OPEN_SIDEBAR_COMMAND, () => openSidebar(context)),
+    vscode.window.registerWebviewViewProvider(
+      SIDEBAR_VIEW_ID,
+      new HarbourSidebarProvider(context),
+      { webviewOptions: { retainContextWhenHidden: true } }
+    ),
+    statusBarItem
   );
 }
 
@@ -21,16 +45,18 @@ export function deactivate() {
   docker = undefined;
   panel?.dispose();
   panel = undefined;
+  sidebarView = undefined;
 }
 
 function showPanel(context: vscode.ExtensionContext) {
   if (panel) {
     panel.reveal(vscode.ViewColumn.Active);
+    ensureScanners(context);
     return;
   }
 
   panel = vscode.window.createWebviewPanel(
-    "harbour.panel",
+    PANEL_VIEW_TYPE,
     "Port Harbour",
     vscode.ViewColumn.Active,
     {
@@ -43,19 +69,85 @@ function showPanel(context: vscode.ExtensionContext) {
     }
   );
 
-  panel.webview.html = renderHtml(panel.webview, context);
+  configureWebview(panel.webview, context);
 
   panel.onDidDispose(() => {
-    killChild();
-    docker?.dispose();
-    docker = undefined;
     panel = undefined;
+    stopScannersIfIdle();
   });
 
   panel.webview.onDidReceiveMessage((msg) => handleWebviewMessage(msg, context));
 
-  startScanner(context);
-  startDocker();
+  ensureScanners(context);
+}
+
+async function openSidebar(context: vscode.ExtensionContext) {
+  try {
+    await vscode.commands.executeCommand("workbench.view.extension.port-harbour");
+    await vscode.commands.executeCommand(`${SIDEBAR_VIEW_ID}.focus`);
+    sidebarView?.show(false);
+    ensureScanners(context);
+  } catch (err) {
+    console.error("[harbour] failed to open sidebar", err);
+    showPanel(context);
+  }
+}
+
+class HarbourSidebarProvider implements vscode.WebviewViewProvider {
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
+    sidebarView = webviewView;
+    webviewView.title = "Harbour";
+    configureWebview(webviewView.webview, this.context);
+
+    const messageDisposable = webviewView.webview.onDidReceiveMessage((msg) =>
+      handleWebviewMessage(msg, this.context)
+    );
+
+    webviewView.onDidDispose(() => {
+      messageDisposable.dispose();
+      if (sidebarView === webviewView) {
+        sidebarView = undefined;
+      }
+      stopScannersIfIdle();
+    });
+
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        ensureScanners(this.context);
+      }
+    });
+
+    ensureScanners(this.context);
+  }
+}
+
+function configureWebview(webview: vscode.Webview, context: vscode.ExtensionContext) {
+  webview.options = {
+    enableScripts: true,
+    localResourceRoots: [
+      vscode.Uri.joinPath(context.extensionUri, "out", "webview"),
+      vscode.Uri.joinPath(context.extensionUri, "assets")
+    ]
+  };
+  webview.html = renderHtml(webview, context);
+}
+
+function ensureScanners(context: vscode.ExtensionContext) {
+  if (!child) {
+    startScanner(context);
+  }
+  if (!docker) {
+    startDocker();
+  }
+}
+
+function stopScannersIfIdle() {
+  if (panel || sidebarView) return;
+  killChild();
+  docker?.dispose();
+  docker = undefined;
 }
 
 function startDocker() {
@@ -64,11 +156,10 @@ function startDocker() {
   if (cfg.get<boolean>("docker", true) === false) return;
   const intervalMs = cfg.get<number>("dockerIntervalMs") ?? 3000;
   docker = new DockerScanner((msg) => {
-    if (!panel) return;
     if (msg.type === "snapshot") {
-      panel.webview.postMessage({ type: "docker_snapshot", data: msg.data });
+      postToWebviews({ type: "docker_snapshot", data: msg.data });
     } else if (msg.type === "event") {
-      panel.webview.postMessage({ type: "docker_event", data: msg.data });
+      postToWebviews({ type: "docker_event", data: msg.data });
     }
   }, intervalMs);
   docker.start();
@@ -112,7 +203,7 @@ function startScanner(context: vscode.ExtensionContext) {
   const cfg = vscode.workspace.getConfiguration("harbour");
   const binPath = resolveBinary(context, cfg.get<string>("binaryPath") ?? "");
   if (!binPath) {
-    panel?.webview.postMessage({
+    postToWebviews({
       type: "error",
       message:
         "Port Harbour binary not found. Build it with `cargo build --release` in the `rust/` folder, or set `harbour.binaryPath` in settings."
@@ -132,7 +223,7 @@ function startScanner(context: vscode.ExtensionContext) {
   try {
     child = spawn(binPath, args, { stdio: ["ignore", "pipe", "pipe"] });
   } catch (err) {
-    panel?.webview.postMessage({
+    postToWebviews({
       type: "error",
       message: `Failed to spawn scanner: ${(err as Error).message}`
     });
@@ -144,18 +235,16 @@ function startScanner(context: vscode.ExtensionContext) {
     console.error("[harbour scanner]", chunk.toString());
   });
   child.on("error", (err) => {
-    panel?.webview.postMessage({
+    postToWebviews({
       type: "error",
       message: `Scanner error: ${err.message}`
     });
   });
   child.on("exit", (code, signal) => {
-    if (panel) {
-      panel.webview.postMessage({
-        type: "info",
-        message: `Scanner exited (code=${code}, signal=${signal ?? "none"})`
-      });
-    }
+    postToWebviews({
+      type: "info",
+      message: `Scanner exited (code=${code}, signal=${signal ?? "none"})`
+    });
     child = undefined;
   });
 }
@@ -169,10 +258,23 @@ function onScannerChunk(chunk: Buffer) {
     if (!line) continue;
     try {
       const snapshot = JSON.parse(line);
-      panel?.webview.postMessage({ type: "snapshot", data: snapshot });
+      postToWebviews({ type: "snapshot", data: snapshot });
     } catch (err) {
       console.error("[harbour] bad json line", err, line.slice(0, 200));
     }
+  }
+}
+
+function postToWebviews(message: unknown) {
+  const targets = [
+    panel?.webview,
+    sidebarView?.webview
+  ].filter((webview): webview is vscode.Webview => Boolean(webview));
+
+  for (const webview of targets) {
+    webview.postMessage(message).then(undefined, (err) => {
+      console.error("[harbour] failed to post webview message", err);
+    });
   }
 }
 
