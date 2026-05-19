@@ -38,7 +38,7 @@ Click any audio toggle to wake up the sea, bells, and retro music (browsers gate
 ## Things to look for
 
 - 🌅 Day/night cycle (golden hour is the prettiest)
-- ⛪ A princess named Mikaela waving from the cathedral window
+- ⛪ Someone waving from the cathedral window
 - 🐱 Two cats. One has spots.
 - 🐋 A whale. Dolphins. A sea serpent. Glowing jellyfish at night.
 - 🛸 UFOs at 3 AM (rare)

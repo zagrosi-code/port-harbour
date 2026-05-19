@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { platformTargets } from "./platforms.mjs";
 
 const root = process.cwd();
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const expectedTargets = ["darwin-arm64", "darwin-x64", "linux-x64", "win32-x64"];
 
 function hasCommand(command) {
   return manifest.contributes.commands.some((entry) => entry.command === command);
@@ -11,7 +13,10 @@ function hasCommand(command) {
 
 assert.equal(manifest.publisher, "zagrosi-code");
 assert.equal(manifest.name, "port-harbour");
-assert.match(manifest.scripts.package, /--target darwin-arm64/);
+assert.equal(manifest.scripts["stage:binary"], "node scripts/stage-platform-binary.mjs");
+assert.equal(manifest.scripts.package, "node scripts/package-platform-vsix.mjs darwin-arm64");
+assert.equal(manifest.scripts["package:target"], "node scripts/package-platform-vsix.mjs");
+assert.deepEqual(platformTargets, expectedTargets);
 assert.equal(manifest.icon, "assets/icon.png");
 assert.ok(fs.existsSync(path.join(root, manifest.icon)), "Marketplace icon is missing");
 assert.ok(fs.existsSync(path.join(root, "assets/harbour-activity.svg")), "Activity Bar icon is missing");

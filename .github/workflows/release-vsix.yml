@@ -1,0 +1,114 @@
+name: Release VSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish packaged VSIX files to the VS Code Marketplace
+        required: true
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  package:
+    name: package / ${{ matrix.vsix-target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - vsix-target: darwin-arm64
+            rust-target: aarch64-apple-darwin
+            os: macos-15
+          - vsix-target: darwin-x64
+            rust-target: x86_64-apple-darwin
+            os: macos-15-intel
+          - vsix-target: linux-x64
+            rust-target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - vsix-target: win32-x64
+            rust-target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: cd webview-ui && npm ci
+
+      - run: cargo build --release --target ${{ matrix.rust-target }}
+        working-directory: rust
+
+      - run: npm test
+      - run: npm run package:target -- ${{ matrix.vsix-target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: port-harbour-${{ matrix.vsix-target }}
+          path: dist/*.vsix
+          if-no-files-found: error
+
+  publish:
+    name: publish / marketplace
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    needs: package
+    runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish VSIX packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "VSCE_PAT secret is required when publish=true" >&2
+            exit 1
+          fi
+          shopt -s nullglob
+          vsix_files=(dist/*.vsix)
+          if [ "${#vsix_files[@]}" -eq 0 ]; then
+            echo "No VSIX files found in dist/" >&2
+            exit 1
+          fi
+          args=()
+          for vsix in "${vsix_files[@]}"; do
+            args+=(--packagePath "$vsix")
+          done
+          npx @vscode/vsce publish "${args[@]}"
