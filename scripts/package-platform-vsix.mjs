@@ -29,7 +29,7 @@ export function packagePlatformVsix({ root = process.cwd(), target } = {}) {
   const result = spawnSync(
     vsceBin,
     ["package", "--target", target, "-o", outputPath],
-    { cwd: root, stdio: "inherit" }
+    { cwd: root, stdio: "inherit", shell: process.platform === "win32" }
   );
 
   if (result.error) {

@@ -56,7 +56,7 @@ cd rust && cargo build --release
 
 ## Build
 
-Needs Node 20+ and Rust.
+Needs Node 24+ and Rust.
 
 ```sh
 cd rust && cargo build --release && cd ..
